@@ -2,15 +2,17 @@
 
 Setup:  pip install playwright pillow && python -m playwright install chromium
 Run:    python tests/run_tests.py            (set CHROME=/path/to/chrome to use an installed Chrome)
+        KIT=/path/to/unzipped-kit python tests/run_tests.py   (test a packaged release instead of starter/)
 Exits non-zero on the first failure.
 """
-import asyncio, os, shutil, sys, tempfile, zipfile
+import asyncio, json, os, shutil, sys, tempfile, zipfile
 from playwright.async_api import async_playwright
 from PIL import Image, ImageDraw
 from make_model import build, LABELS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STARTER = os.path.join(HERE, "..", "starter")
+STARTER = os.environ.get("KIT") or os.path.join(HERE, "..", "starter")
+REAL_MODEL = os.path.join(HERE, "fixtures", "real-model")  # a real TM export: dog / cat
 CHROME = os.environ.get("CHROME")
 ARGS = ["--no-sandbox", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
 HAS_PCT = "document.querySelector('#result').textContent.includes('%')"
@@ -122,7 +124,41 @@ async def main():
             await b.close()
     finally:
         proc.terminate()
+    await check_real_model(work)
     shutil.rmtree(work, ignore_errors=True)
     print("ALL TESTS PASSED")
+
+async def check_real_model(work):
+    """A real Teachable Machine export (tests/fixtures/real-model): zip drop -> save -> reload, on file://."""
+    with open(os.path.join(REAL_MODEL, "metadata.json")) as f:
+        labels = json.load(f)["labels"]
+    zpath = os.path.join(work, "real-tm-model.zip")
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        for n in ("model.json", "metadata.json", "weights.bin"):
+            z.write(os.path.join(REAL_MODEL, n), n)
+    kit = os.path.join(work, "real-kit")
+    shutil.copytree(STARTER, kit, ignore=shutil.ignore_patterns("model-bundle*.js", "*.zip", "*.bin", "model.json", "metadata.json"))
+    async with async_playwright() as p:
+        b = await p.chromium.launch(executable_path=CHROME, args=ARGS)
+        ctx = await b.new_context(accept_downloads=True)
+        pg = await ctx.new_page()
+        errors = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        await pg.goto("file://" + os.path.join(kit, "index.html"))
+        await pg.click("#use-webcam")
+        await pg.set_input_files(".tmh-overlay input", zpath)
+        await pg.wait_for_function(HAS_PCT, timeout=60000)
+        check(await pg.locator(".bar-row span").all_inner_texts() == labels, "real TM model: zip loads with its labels")
+        total = await pg.evaluate("async () => (await TM.classify(document.querySelector('#webcam canvas'))).all.reduce((s, x) => s + x.confidence, 0)")
+        check(abs(total - 1) < 1e-3, "real TM model: confidences add up to 100%")
+        async with pg.expect_download() as dl_info:
+            await pg.click(".tmh-banner .tmh-btn:not(.secondary)")
+        await (await dl_info.value).save_as(os.path.join(kit, "model", "model-bundle.js"))
+        await pg.reload()
+        await pg.click("#use-webcam")
+        await pg.wait_for_function(HAS_PCT, timeout=60000)
+        check(await pg.locator(".tmh-overlay").count() == 0, "real TM model: ~3 MB saved bundle reloads on file://")
+        check(not errors, "real TM model: no uncaught page errors " + (str(errors) if errors else ""))
+        await b.close()
 
 asyncio.run(main())
