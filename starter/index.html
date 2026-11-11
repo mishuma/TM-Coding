@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Teachable Machine App</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 24px; background: #f8fafc; color: #0f172a; }
+    main { max-width: 720px; margin: 0 auto; text-align: center; }
+    #webcam { margin: 16px auto; width: 300px; height: 300px; border-radius: 16px; overflow: hidden; background: #e2e8f0;
+              display: flex; align-items: center; justify-content: center; color: #64748b; }
+    #webcam.drag-over { outline: 4px dashed #2563eb; }
+    #webcam canvas { display: block; }
+    /* Show the photo the way the model sees it: a square crop from the center. */
+    #webcam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #result { font-size: 40px; font-weight: 700; margin: 8px 0 16px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; margin: 6px auto; max-width: 420px; }
+    .bar-row span { width: 120px; text-align: right; }
+    .bar { flex: 1; height: 18px; background: #e2e8f0; border-radius: 9px; overflow: hidden; }
+    .bar div { height: 100%; width: 0; background: #2563eb; transition: width .1s; }
+    button, .button { display: inline-block; font: inherit; font-weight: 600; padding: 12px 20px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; cursor: pointer; margin: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>My Teachable Machine App</h1>
+    <button id="use-webcam">Use webcam</button>
+    <label class="button" for="photo">Upload a photo</label>
+    <input type="file" id="photo" accept="image/*" hidden>
+    <div id="webcam">Choose webcam or a photo</div>
+    <div id="result">…</div>
+    <div id="bars"></div>
+  </main>
+
+  <!-- Teachable Machine libraries (already in the lib folder, no install needed). Keep this order. -->
+  <script src="lib/tf.min.js"></script>
+  <script src="lib/teachablemachine-image.min.js"></script>
+  <!-- Your saved model (created the first time you load your model). It's fine if this file doesn't exist yet. -->
+  <script src="model/model-bundle.js"></script>
+  <script src="tm-helper.js"></script>
+
+  <script>
+    // ===== YOUR APP CODE GOES HERE =====
+
+    // Called with the model's guess: many times per second for the webcam,
+    // or once each time a photo is uploaded.
+    //   result.label      -> the class name with the highest confidence, e.g. "Thumbs up"
+    //   result.confidence -> 0 to 1 (0.93 means 93% sure)
+    //   result.all        -> every class: [{ label, confidence }, ...]
+    function whenPrediction(result) {
+      document.getElementById('result').textContent =
+        result.label + ' (' + Math.round(result.confidence * 100) + '%)';
+
+      result.all.forEach((p, i) => {
+        document.getElementById('bar-' + i).style.width = (p.confidence * 100) + '%';
+      });
+
+      // Example of reacting to the model:
+      // if (result.label === 'Thumbs up' && result.confidence > 0.9) { document.body.style.background = '#bbf7d0'; }
+    }
+
+    // Draw one bar per class the model knows.
+    function makeBars(labels) {
+      document.getElementById('bars').innerHTML = labels.map((label, i) =>
+        `<div class="bar-row"><span>${label}</span><div class="bar"><div id="bar-${i}"></div></div></div>`
+      ).join('');
+    }
+
+    // Load the model the first time it's needed (webcam or photo).
+    let modelReady = false;
+    async function getReady() {
+      if (modelReady) return;
+      const labels = await TM.loadModel();
+      makeBars(labels);
+      TM.onPrediction(whenPrediction); // only fires while the webcam is on
+      modelReady = true;
+    }
+
+    function showError(err) {
+      document.getElementById('result').textContent = err.message;
+    }
+
+    // ----- Webcam -----
+    document.getElementById('use-webcam').addEventListener('click', async () => {
+      try {
+        await getReady();
+        TM.stopWebcam();
+        document.getElementById('webcam').innerHTML = '';
+        await TM.startWebcam('webcam', { size: 300 });
+      } catch (err) {
+        showError(err);
+      }
+    });
+
+    // ----- Photo from the laptop -----
+    async function classifyPhoto(file) {
+      if (!file || !file.type.startsWith('image/')) {
+        showError(new Error('Please choose an image file (jpg, png, …).'));
+        return;
+      }
+      try {
+        await getReady();
+        TM.stopWebcam();
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        const box = document.getElementById('webcam');
+        box.innerHTML = '';
+        box.appendChild(img);
+        whenPrediction(await TM.classify(img));
+      } catch (err) {
+        showError(err);
+      }
+    }
+
+    document.getElementById('photo').addEventListener('change', e => {
+      classifyPhoto(e.target.files[0]);
+      e.target.value = ''; // so picking the same photo again still works
+    });
+
+    // You can also drag a photo onto the box.
+    const box = document.getElementById('webcam');
+    box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('drag-over'); });
+    box.addEventListener('dragleave', () => box.classList.remove('drag-over'));
+    box.addEventListener('drop', e => {
+      e.preventDefault();
+      box.classList.remove('drag-over');
+      classifyPhoto(e.dataTransfer.files[0]);
+    });
+  </script>
+</body>
+</html>

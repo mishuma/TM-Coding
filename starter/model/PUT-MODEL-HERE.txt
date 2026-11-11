@@ -1,0 +1,6 @@
+Put model-bundle.js in this folder.
+
+You get it the first time you run the app: drop your Teachable Machine .zip on the page,
+click "Save model to project", then move model-bundle.js from your Downloads folder to here.
+
+Retrained your model? Delete model-bundle.js from this folder, reload the app, and repeat.
