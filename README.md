@@ -2,7 +2,8 @@
 
 A no-install starter kit for high school students to build an app around an image model they trained in [Google Teachable Machine](https://teachablemachine.withgoogle.com). It's designed for "vibe coding" with an AI assistant. Part of the MIT FutureBuilders AI literacy curriculum.
 
-- **Students:** download the `starter` folder and follow [`starter/README.md`](starter/README.md).
+- **Teachers:** give students the latest kit: [tm-image-app-starter.zip](https://github.com/mishuma/TM-Coding/releases/latest/download/tm-image-app-starter.zip).
+- **Students:** download the kit above (or the `starter` folder) and follow [`starter/README.md`](starter/README.md).
 - **Developers and agents:** see [`AGENTS.md`](AGENTS.md).
 
 ## How it works
